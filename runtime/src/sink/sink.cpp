@@ -4,6 +4,8 @@
 #include "sink/babble_osc_sink.h"
 #include "sink/camera_stream_sink.h"
 #include "sink/debug_sink.h"
+#include "sink/eyecam_squint_sink.h"
+#include "sink/frame_preview_sink.h"
 #include "sink/link_sink.h"
 #include "sink/osc_sink.h"
 #include "sink/plugin_sink.h"

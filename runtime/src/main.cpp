@@ -2,6 +2,7 @@
 
 #include "babble_version.h"
 #include "camera/tracking_source.h"
+#include "camera/face_camera_source.h"
 #include "camera/usb/babble_usb_source.h"
 #include "camera/usb/uvc.h"
 #include "capture/app_installer.h"
@@ -936,7 +937,7 @@ int main(int argc, char **argv) {
         }
         for (const auto &c : usb_cameras)
             o << "usb camera: " << c.label << " (" << c.id << ")"
-              << (usb_source && usb_source->active_camera() == c.id ? " streaming" : "") << "\n";
+              << (usb_source() && usb_source()->active_camera() == c.id ? " streaming" : "") << "\n";
         o << "\n== signals (value, age)\n";
         const auto snap = state.snapshot();
         const uint64_t now_ns = mono_ns();
@@ -1379,9 +1380,9 @@ int main(int argc, char **argv) {
             st.stats_file = stats_file.path().string();
             update_camera_settings();
             st.cameras = usb_cameras;
-            if (usb_source) {
-                st.camera = usb_source->camera();
-                st.active_camera = usb_source->active_camera();
+            if (auto *usb = usb_source()) {
+                st.camera = usb->camera();
+                st.active_camera = usb->active_camera();
             }
             for (auto &s : sources) {
                 // Show the eye rate that the share of the camera rate gives.

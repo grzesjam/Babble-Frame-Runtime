@@ -79,7 +79,7 @@ std::optional<int> parse_dominant_eye(const uint8_t *p);
 // Reads the eye-service shared memory on its own thread, and writes only the mutex and the request flag.
 class EyeServerClient {
 public:
-    enum Consumer : uint32_t { Gaze = 1, Openness = 2, Record = 4 };
+    enum Consumer : uint32_t { Gaze = 1, Openness = 2, Record = 4, Squint = 8 };
     struct Options {
         std::string path = "/dev/shm/eye-server.mmap";
     };

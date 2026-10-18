@@ -71,6 +71,11 @@ std::optional<std::array<double, 2>> from_direction(double x, double y, double z
     return std::array<double, 2>{scale(std::atan2(x, z), max_deg, scaling), scale(std::atan2(y, z), max_deg, scaling)};
 }
 
+double width_for(double feo_width, double max_deg, Scaling scaling) {
+    // Near the centre, tan(a) is a in radians.
+    return scaling == Scaling::Tangent ? feo_width * 45 * M_PI / 180 : feo_width * 45 / max_deg;
+}
+
 }
 
 SteamVrGaze::SteamVrGaze(const nlohmann::json &cfg, PipelineDeps deps)
@@ -151,8 +156,14 @@ bool SteamVrGaze::init() {
     smoothing_ = level;
 
     const char *names[4] = {"LeftEyeX", "LeftEyeY", "RightEyeX", "RightEyeY"};
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < 4; i++) {
         ids_[i] = deps_.state.add_signal(names[i]);
+        pre_ids_[i] = deps_.state.add_signal(std::string("_") + names[i] + "Pre");
+    }
+    lid_ids_ = {deps_.state.add_signal("_LeftEyeLidPre"), deps_.state.add_signal("_RightEyeLidPre")};
+    for (const char *key : {"smoothing", "one_euro", "deadzone", "hold_closed_below", "ranges"})
+        if (cfg_.contains(key) && !set_filter_option(key, cfg_[key]))
+            LOG.warn("pipeline %s: ignoring %s = %s", name_.c_str(), key, cfg_[key].dump().c_str());
     const std::string p = "pipe." + name_ + ".";
     deps_.stats.add(p + "samples_per_s", &samples_);
     deps_.stats.add(p + "invalid", &invalid_);
@@ -164,6 +175,46 @@ bool SteamVrGaze::init() {
     return true;
 }
 
+bool SteamVrGaze::set_filter_option(const std::string &key, const nlohmann::json &value) {
+    std::lock_guard<std::mutex> lock(opt_mutex_);
+    if (key == "smoothing" && value.is_boolean()) {
+        smoothing_ = value.get<bool>();
+        return true;
+    }
+    if (key == "one_euro" && value.is_object()) {
+        filter_params_.euro = *one_euro_params(value, filter_params_.euro);
+        return true;
+    }
+    if (key.starts_with("one_euro/") && value.is_number()) {
+        const std::string field = key.substr(9);
+        if (field != "min_cutoff" && field != "beta" && field != "d_cutoff")
+            return false;
+        filter_params_.euro = *one_euro_params(nlohmann::json{{field, value}}, filter_params_.euro);
+        return true;
+    }
+    if (key == "deadzone" && value.is_number() && value.get<double>() >= 0) {
+        filter_params_.deadzone = value.get<double>();
+        return true;
+    }
+    if (key == "hold_closed_below" && value.is_number() && value.get<double>() >= 0) {
+        filter_params_.hold_closed_below = value.get<double>();
+        return true;
+    }
+    const char *names[4] = {"LeftEyeX", "LeftEyeY", "RightEyeX", "RightEyeY"};
+    if (key == "ranges" && value.is_object()) {
+        bool ok = true;
+        for (const auto &[k, v] : value.items()) {
+            const auto it = std::find_if(names, names + 4, [&](const char *n) { return k == n; });
+            ok = it != names + 4 && ManualRange::parse(v, &ranges_[it - names]) && ok;
+        }
+        return ok;
+    }
+    for (int i = 0; i < 4; i++)
+        if (key == std::string("ranges/") + names[i])
+            return ManualRange::parse(value, &ranges_[i]);
+    return false;
+}
+
 bool SteamVrGaze::set_option(const std::string &key, const nlohmann::json &value) {
     if (key == "smoothing") {
         if (!value.is_number_integer() || value.get<int>() < 0 || value.get<int>() > smoother_.levels())
@@ -173,7 +224,7 @@ bool SteamVrGaze::set_option(const std::string &key, const nlohmann::json &value
         return true;
     }
     if (key != "gaze_source")
-        return false;
+        return set_filter_option(key, value);
     auto source = parse_gaze_source(value);
     if (!source)
         return false;
@@ -236,7 +287,7 @@ bool SteamVrGaze::tick_independent(uint64_t now) {
     auto gr = gaze::from_direction(r[0], r[1], r[2], max_deg_, flip_y_, off_, scaling_);
     if (!gl || !gr)
         return false;
-    publish((*gl)[0], (*gl)[1], (*gr)[0], (*gr)[1], now);
+    send((*gl)[0], (*gl)[1], (*gr)[0], (*gr)[1], now);
     samples_.tick();
     return true;
 }
@@ -285,7 +336,7 @@ bool SteamVrGaze::tick_combined(uint64_t now) {
     if (!g)
         return false;
     const auto &[lx, rx, y] = *g;
-    publish(lx, y, rx, y, now);
+    send(lx, y, rx, y, now);
     samples_.tick();
     return true;
 }

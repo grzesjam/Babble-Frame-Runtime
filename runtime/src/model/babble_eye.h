@@ -2,11 +2,14 @@
 
 #include "model/eye_kit.h"
 #include "model/pipeline.h"
+#include "model/postprocess/blink_hold.h"
 #include "model/postprocess/eye_post.h"
+#include "model/postprocess/manual_range.h"
 
 #include <array>
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <vector>
 

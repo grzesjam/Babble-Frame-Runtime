@@ -54,9 +54,22 @@ void Dashboard::stop() {
     pointer_.reset();
     hover_ = -1;
     view_.set_page(DashboardView::Page::Home);
+    if (options_.preview)
+        options_.preview->set_open(false);
 }
 
 void Dashboard::release_gpu() { gpu_.release(); }
+
+void Dashboard::show_keyboard(const std::string &text) {
+    vr::EVROverlayError err = vr::VROverlayError_None;
+    vr_->with_vr([&] {
+        err = vr::VROverlay()->ShowKeyboardForOverlay(main_, vr::k_EGamepadTextInputModeNormal,
+                                                      vr::k_EGamepadTextInputLineModeSingleLine, vr::KeyboardFlag_Modal,
+                                                      "Stream URL", 500, text.c_str(), 0);
+    });
+    if (err != vr::VROverlayError_None)
+        LOG.warn("dashboard: opening the keyboard failed (%d)", int(err));
+}
 
 void Dashboard::set_status(const Status &s) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -256,6 +269,24 @@ std::array<EyeReading, 2> Dashboard::read_eyes() const {
     return out;
 }
 
+PageData Dashboard::read_page_data() {
+    PageData d;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        d.config = config_;
+    }
+    if (options_.state) {
+        const auto snap = options_.state->snapshot();
+        const uint64_t now = mono_ns();
+        for (size_t i = 0; i < snap.names.size() && i < snap.signals.size(); i++)
+            if (snap.signals[i].t_ns != 0)
+                d.signals[snap.names[i]] = {snap.signals[i].value, now - snap.signals[i].t_ns < 1000000000ull};
+    }
+    if (options_.preview && view_.page() == DashboardView::Page::Mouth)
+        d.preview = options_.preview->latest();
+    return d;
+}
+
 void Dashboard::present() {
     Status status;
     std::vector<Choice> choices;
@@ -324,7 +355,19 @@ void Dashboard::run() {
                     if (ev.data.mouse.button == vr::VRMouseButton_Left)
                         clicks.push_back({ev.data.mouse.x, DashboardView::kHeight - ev.data.mouse.y});
                     break;
+                case vr::VREvent_MouseButtonUp:
+                    if (ev.data.mouse.button == vr::VRMouseButton_Left)
+                        releases.push_back({ev.data.mouse.x, DashboardView::kHeight - ev.data.mouse.y});
+                    break;
+                case vr::VREvent_KeyboardDone: {
+                    char text[512] = {};
+                    vr::VROverlay()->GetKeyboardText(text, sizeof(text));
+                    typed = text;
+                    break;
+                }
                 case vr::VREvent_FocusLeave:
+                    if (pointer_ && view_.dragging())
+                        releases.push_back(*pointer_);   // End a drag where the laser left the tab.
                     pointer_.reset();
                     break;
                 case vr::VREvent_KeyboardDone: {
@@ -390,7 +433,10 @@ void Dashboard::run() {
                 capture_request_ = int(r.capture);
             if (r.update)
                 update_request_ = true;
+            if (r.keyboard)
+                show_keyboard(*r.keyboard);
             std::lock_guard<std::mutex> lock(mutex_);
+            changes_.insert(changes_.end(), r.changes.begin(), r.changes.end());
             // Show string settings immediately, and let the main thread apply them.
             if (r.mouth_source && *r.mouth_source != status_.mouth_source) {
                 status_.mouth_source = *r.mouth_source;

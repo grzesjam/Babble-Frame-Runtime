@@ -68,7 +68,12 @@ bool BabbleEye::init() {
     for (int k = 0; k < 3; k++) {
         left_ids_[k] = deps_.state.add_signal(std::string("LeftEye") + names[k]);
         right_ids_[k] = deps_.state.add_signal(std::string("RightEye") + names[k]);
+        left_pre_ids_[k] = deps_.state.add_signal(std::string("_LeftEye") + names[k] + "Pre");
+        right_pre_ids_[k] = deps_.state.add_signal(std::string("_RightEye") + names[k] + "Pre");
     }
+    for (const char *key : {"blink_hold_ms", "ranges"})
+        if (cfg_.contains(key) && !set_eye_option(key, cfg_[key]))
+            LOG.warn("pipeline %s: ignoring %s = %s", name_.c_str(), key, cfg_[key].dump().c_str());
     // The lid value before calibration is for the debug overlay.
     left_raw_id_ = deps_.state.add_signal("_LeftEyeLidRaw");
     right_raw_id_ = deps_.state.add_signal("_RightEyeLidRaw");
@@ -103,6 +108,7 @@ void BabbleEye::start_session() {
         lid_euro_[e].reset();
         if (lid_filter_)
             lid_euro_[e].emplace(1, *lid_filter_);
+        blink_hold_[e].reset();
     }
     set_pupil_windows();
     last_capture_ns_ = 0;
@@ -146,6 +152,31 @@ void BabbleEye::retune(double hz) {
         c.set_timing(op.skip, op.warmup, op.every, op.peak_window, op.trough_window);
     set_pupil_windows();
     LOG.info("pipeline %s: eye filters tuned for %.0f updates/s", name_.c_str(), hz);
+}
+
+bool BabbleEye::set_eye_option(const std::string &key, const nlohmann::json &value) {
+    if (key == "blink_hold_ms") {
+        if (!value.is_number() || value.get<double>() < 0 || value.get<double>() > 150)
+            return false;
+        blink_hold_ms_ = value.get<double>();
+        return true;
+    }
+    const char *names[3] = {"Lid", "Widen", "Dilation"};
+    auto set_range = [&](const std::string &signal, const nlohmann::json &v) {
+        for (int side = 0; side < 2; side++)
+            for (int k = 0; k < 3; k++)
+                if (signal == std::string(side == 0 ? "LeftEye" : "RightEye") + names[k])
+                    return ManualRange::parse(v, &ranges_[side][k]);
+        return false;
+    };
+    std::lock_guard<std::mutex> lock(range_mutex_);
+    if (key == "ranges" && value.is_object()) {
+        bool ok = true;
+        for (const auto &[k, v] : value.items())
+            ok = set_range(k, v) && ok;
+        return ok;
+    }
+    return key.starts_with("ranges/") && set_range(key.substr(7), value);
 }
 
 bool BabbleEye::set_option(const std::string &key, const nlohmann::json &value) {
@@ -290,15 +321,20 @@ void BabbleEye::process(const StereoFrame &sf) {
 
     // The module sides follow the avatar, so by default "Left" is view 3 and "Right" is view 2.
     const int left = babble_swap_ ? 0 : 1, right = babble_swap_ ? 1 : 0;
+    std::array<std::array<ManualRange, 3>, 2> ranges;
+    {
+        std::lock_guard<std::mutex> lock(range_mutex_);
+        ranges = ranges_;
+    }
     std::vector<std::pair<SignalId, Signal>> updates;
     auto emit = [&](const std::array<SignalId, 3> &ids, int e) {
         updates.emplace_back(ids[0], Signal{float(lid_out[e]), 1.0f, sf.capture_ns});
         updates.emplace_back(ids[1], Signal{float(widen[e]), 1.0f, sf.capture_ns});
         if (dil[e])   // Send no dilation until the pupil baseline exists, as the reference does.
-            updates.emplace_back(ids[2], Signal{float(std::clamp(*dil[e], 0.0, 1.0)), 1.0f, sf.capture_ns});
+            add(2, std::clamp(*dil[e], 0.0, 1.0));
     };
-    emit(left_ids_, left);
-    emit(right_ids_, right);
+    emit(left_ids_, left_pre_ids_, ranges[0], left);
+    emit(right_ids_, right_pre_ids_, ranges[1], right);
     updates.emplace_back(left_raw_id_, Signal{float(lid[left]), 1.0f, sf.capture_ns});
     updates.emplace_back(right_raw_id_, Signal{float(lid[right]), 1.0f, sf.capture_ns});
     if (shown_mm[left])

@@ -1324,6 +1324,9 @@ DashboardView::ClickResult DashboardView::click(Point p) {
         case Hit::Visualizer:
             out.visualizer = true;
             break;
+        case Hit::Fork:
+            click_fork(h, out, p);
+            break;
         case Hit::Restart: {
             const uint64_t now = mono_ns();
             if (restart_armed(now)) {

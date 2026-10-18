@@ -77,8 +77,11 @@ private:
     bool create_overlays();
     void destroy_overlays();
     void present();
+    void show_keyboard(const std::string &text);   // Opens the SteamVR keyboard for the stream URL.
     // Reads the eye panel values from ExpressionState and changes the gaze to degrees.
     std::array<EyeReading, 2> read_eyes() const;
+    // Reads the config, the signals and the preview frame for the Eyes, Squint and Mouth pages.
+    PageData read_page_data();
     // The number of signals for each eye.
     static constexpr int kPerEye = 8;
     std::array<SignalId, 2 * kPerEye> eye_ids_{};
@@ -93,10 +96,11 @@ private:
     std::thread thread_;
     std::atomic<bool> stop_{false};
 
-    std::mutex mutex_;   // This mutex guards status_, choices_, changes_ and dirty_.
+    std::mutex mutex_;   // This mutex guards status_, choices_, changes_, config_ and dirty_.
     Status status_;
     std::vector<Choice> choices_;
     std::vector<std::pair<std::string, nlohmann::json>> changes_;
+    std::shared_ptr<const nlohmann::json> config_;
     bool dirty_ = true;
     std::atomic<bool> visualizer_request_{false};
     std::atomic<bool> restart_request_{false};

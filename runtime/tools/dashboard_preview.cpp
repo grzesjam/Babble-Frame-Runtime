@@ -12,6 +12,8 @@
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <map>
+#include <memory>
 #include <string>
 
 using namespace babble;
