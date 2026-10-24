@@ -1298,6 +1298,7 @@ DashboardView::ClickResult DashboardView::click(Point p) {
         case Hit::OpenCameras:
             restart_armed_until_ns_ = 0;
             page_ = Page::Cameras;
+            fork_.cameras_from_mouth = false;
             out.refresh_cameras = true;   // Show the cameras that are connected now.
             out.redraw = true;
             break;

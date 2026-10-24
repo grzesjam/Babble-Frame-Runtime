@@ -48,6 +48,8 @@ public:
     std::vector<uint8_t> config_descriptor() const;
 
     bool claim(uint8_t iface, std::string *error);
+    // Returns the errno of the last failed claim, which is EBUSY if another program holds the interface.
+    int claim_errno() const { return claim_errno_; }
     void release(uint8_t iface);
     bool set_interface(uint8_t iface, uint8_t alt);
     bool clear_halt(uint8_t endpoint);
@@ -57,6 +59,7 @@ public:
 
 private:
     int fd_ = -1;
+    int claim_errno_ = 0;
     std::string sysfs_;
     std::vector<uint8_t> claimed_;
 };

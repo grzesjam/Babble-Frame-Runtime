@@ -81,6 +81,35 @@ std::optional<Picked> pick_mode(const Info &info, const Mode &want);
 // Returns the frame rates of a frame size for the dashboard, highest first, rounded to whole fps.
 std::vector<int> frame_rates(const FrameSize &f);
 
+// One frame size of one format for the settings, with the rates highest first.
+struct Mode {
+    bool yuyv = false;
+    uint16_t width = 0, height = 0;
+    std::vector<double> fps;
+    bool too_large = false;               // True if width x height is more than kMaxPixels.
+};
+
+// Returns the MJPEG modes and then the YUYV modes, each group largest first.
+std::vector<Mode> list_modes(const Info &info);
+
+// The format, frame size and interval to negotiate.
+struct Choice {
+    bool yuyv = false;
+    uint8_t format_index = 0;
+    FrameSize frame;
+    uint32_t interval = 0;                // The unit is 100 ns.
+};
+
+// Picks the mode for the settings: format is "auto", "mjpeg" or "yuyv", and fps 0 means the default rate.
+std::optional<Choice> pick_mode(const Info &info, const std::string &format, uint16_t width, uint16_t height,
+                                double fps, std::string *error = nullptr);
+
+// Returns the isochronous setting with the smallest packet that holds max_payload bytes, or null.
+const AltSetting *pick_alt(const Info &info, uint32_t max_payload);
+
+// Copies the Y bytes of a YUYV frame to gray and returns false if the frame is not width x height x 2 bytes.
+bool yuyv_to_gray(const uint8_t *data, size_t size, uint32_t width, uint32_t height, uint8_t *gray);
+
 // The VS_PROBE_CONTROL and VS_COMMIT_CONTROL block, with a length that changes with the UVC version.
 struct Probe {
     uint16_t hint = 1;                    // This bmHint keeps dwFrameInterval fixed.
@@ -103,6 +132,8 @@ public:
     bool push(const uint8_t *payload, size_t size);
     std::vector<uint8_t> &frame() { return done_; }
     uint64_t dropped() const { return dropped_; }
+    // Drops the frame that is being built, for example after a lost isochronous packet.
+    void mark_bad() { bad_ = true; }
     void reset();
 
 private:
@@ -114,7 +145,7 @@ private:
     uint64_t dropped_ = 0;
 };
 
-// Returns true if the data starts with SOI (FF D8) and ends with EOI (FF D9).
+// Returns true if the data starts with SOI (FF D8) and has EOI (FF D9) at the end, or before padding at the end.
 bool looks_like_jpeg(const uint8_t *data, size_t size);
 
 // Converts one frame to 8-bit grayscale in out, and sets the size of the image. An uncompressed frame must have the

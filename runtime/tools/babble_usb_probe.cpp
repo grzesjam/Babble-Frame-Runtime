@@ -63,6 +63,17 @@ int main(int argc, char **argv) {
     std::vector<uint8_t> gray(1920 * 1080);
     int frames = 0, bad = 0, saved = 0;
     size_t bytes = 0;
+    // Saves the raw bytes of a bad frame, so that its start and end can be read.
+    auto save_bad = [&](const uint8_t *d, size_t n) {
+        if (save_dir.empty() || saved_bad >= save_count)
+            return;
+        char path[512];
+        snprintf(path, sizeof(path), "%s/bad_%03d.bin", save_dir.c_str(), saved_bad++);
+        if (FILE *f = fopen(path, "wb")) {
+            fwrite(d, 1, n, f);
+            fclose(f);
+        }
+    };
     const uint64_t t0 = mono_ns(), end = t0 + uint64_t(seconds * 1e9);
     uint64_t first = 0, last = 0;
     while (mono_ns() < end) {
@@ -77,6 +88,7 @@ int main(int argc, char **argv) {
             if (!uvc::to_gray(cam.format(), d, n, cam.frame_size().width, cam.frame_size().height, gray.data(),
                               gray.size(), &w, &h)) {
                 bad++;
+                save_bad(d, n);
                 return;
             }
             if (saved < save_count) {

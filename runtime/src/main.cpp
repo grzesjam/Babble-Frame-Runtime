@@ -1383,6 +1383,22 @@ int main(int argc, char **argv) {
             if (auto *usb = usb_source()) {
                 st.camera = usb->camera();
                 st.active_camera = usb->active_camera();
+                using U = ui::UsbStream::State;
+                using B = BabbleUsbSource::StreamStatus::State;
+                const auto s = usb->stream_status();
+                st.usb_stream.state = s.state == B::Opening     ? U::Opening
+                                      : s.state == B::Streaming ? U::Streaming
+                                      : s.state == B::Busy      ? U::Busy
+                                      : s.state == B::Error     ? U::Error
+                                                                : U::Waiting;
+                st.usb_stream.camera = usb->active_camera();
+                if (s.state == B::Streaming)
+                    st.usb_stream.format = s.yuyv ? "yuyv" : "mjpeg";
+                st.usb_stream.width = s.width;
+                st.usb_stream.height = s.height;
+                st.usb_stream.fps_asked = s.fps_asked;
+                st.usb_stream.fps_real = s.fps_real;
+                st.usb_stream.error = s.error;
             }
             for (auto &s : sources) {
                 // Show the eye rate that the share of the camera rate gives.

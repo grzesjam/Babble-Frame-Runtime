@@ -8,6 +8,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -81,6 +82,14 @@ struct OutputModule {
     std::string status;            // What the output does now, which replaces the hint while it is on.
     std::vector<ModuleOption> options;
     bool operator==(const OutputModule &) const = default;
+};
+
+// A streaming mode of a USB camera, from its descriptors.
+struct UsbMode {
+    std::string format;            // "mjpeg" or "yuyv".
+    uint16_t width = 0, height = 0;
+    std::vector<double> fps;       // The advertised rates, highest first.
+    bool too_large = false;        // True if the frame is larger than the 640x480 frame buffers.
 };
 
 // A USB camera that the mouth can use.
@@ -163,6 +172,7 @@ struct Status {
     bool mouth_source_selectable = true;   // False hides the Frunk/USB row because the USB camera is the only mouth.
     std::vector<UsbCamera> cameras{};
     std::string camera{}, active_camera{};
+    UsbStream usb_stream{};
     // The data for the Diagnostics page, where verbose_minutes_left is 0 if verbose logging is off.
     int verbose_minutes_left = 0;
     std::string last_diagnostics{}, log_file{}, stats_file{};
@@ -247,7 +257,7 @@ public:
     const std::string &options_camera() const { return options_camera_; }
     void set_options_camera(const std::string &id) { options_camera_ = id; }
 
-    // The Eyes, Squint and Mouth pages draw live data, which the caller sets before each render.
+    // The Eyes, Squint, Mouth and Resolution pages draw live data, which the caller sets before each render.
     bool live_page() const { return page_ >= Page::Eyes; }
     void set_page_data(PageData d) { fork_.data = std::move(d); }
     // A drag that started with a click on a range handle or the crop box follows the pointer until release.
@@ -315,7 +325,8 @@ private:
     // The pages that the fork adds, in ui/page_*.cpp, and their widgets, in ui/widgets.cpp.
     void render_eyes(Canvas &c, const std::vector<Choice> &choices);
     void render_squint(Canvas &c, const std::vector<Choice> &choices);
-    void render_mouth(Canvas &c);
+    void render_mouth(Canvas &c, const Status &s);
+    void render_resolution(Canvas &c, const Status &s);   // The modes of the USB mouth camera.
     void render_page_buttons(Canvas &c, float right);   // The Eyes, Squint and Mouth buttons on Settings.
     void render_range(Canvas &c, Rect r, const std::string &pointer, const std::string &signal, bool signed_axis,
                       bool dim = false);
