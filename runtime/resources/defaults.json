@@ -177,7 +177,13 @@
       "pupil_one_euro_mm": { "min_cutoff": 0.5, "beta": 0.1, "d_cutoff": 1.0 },
       "babble_swap": false,
       "combine_widen": true,
-      "combine_dilation": true
+      "combine_dilation": true,
+      "blink_hold_ms": 0,
+      "ranges": {
+        "LeftEyeLid": [0, 1], "RightEyeLid": [0, 1],
+        "LeftEyeWiden": [0, 1], "RightEyeWiden": [0, 1],
+        "LeftEyeDilation": [0, 1], "RightEyeDilation": [0, 1]
+      }
     },
     "gaze": {
       "type": "steamvr_gaze",
@@ -195,6 +201,11 @@
       "roll_offset": 0,
       "stale_s": 0.5,
       "smoothing": 0,
+      "smoothing_strength": 2,
+      "one_euro": { "min_cutoff": 0.3, "beta": 1.5, "d_cutoff": 0.5 },
+      "deadzone": 0.005,
+      "hold_closed_below": 0.5,
+      "frameeye_smoothing": true,
       "smoothing_presets": [
         { "min_cutoff": 3.0, "beta": 0.5, "d_cutoff": 1.0 },
         { "min_cutoff": 1.5, "beta": 0.3, "d_cutoff": 1.0 },
@@ -263,6 +274,17 @@
       "prefix": "",
       "max_rate_hz": 0,
       "exclude": []
+    },
+    "squint": {
+      "type": "eyecam_squint",
+      "enabled": true,
+      "thread": "squint",
+      "active": true,
+      "max_hz": 45,
+      "calib_file": "eyecam_calib.json",
+      "import_from": "~/.config/eyecam/calib.json",
+      "calibrate": 0,
+      "ranges": { "LeftEyeSquint": [0, 1], "RightEyeSquint": [0, 1] }
     },
     "record": {
       "type": "record",
@@ -410,6 +432,45 @@
         "hint": "Steadies the gaze. Stronger smoothing adds a little lag to fast eye movements.",
         "options": [0, 1, 2, 3],
         "labels": ["Off", "Low", "Medium", "High"]
+      },
+      {
+        "id": "/pipelines/gaze/frameeye_smoothing",
+        "page": "eye",
+        "label": "FrameeyeOSC Smoothing",
+        "hint": "Uses the One Euro filter, deadzone and hold-while-shut behavior.",
+        "persist": true
+      },
+      {
+        "id": "/pipelines/gaze/smoothing_strength",
+        "page": "eye",
+        "label": "FrameeyeOSC Strength",
+        "hint": "Higher settings steady gaze more but add lag.",
+        "options": [0, 1, 2, 3],
+        "labels": ["Off", "Low", "Medium", "High"]
+      },
+      {
+        "id": "/pipelines/eye/blink_hold_ms",
+        "page": "eye",
+        "label": "Blink Hold",
+        "hint": "Keeps brief blinks closed long enough for other players to see.",
+        "unit": "ms",
+        "options": [0, 50, 100, 150],
+        "labels": ["Off", "50", "100", "150"]
+      },
+      {
+        "id": "/sinks/squint/active",
+        "page": "eye",
+        "label": "Squint",
+        "hint": "Squint from eyecam's live engine.",
+        "persist": true
+      },
+      {
+        "id": "/sources/face/mode",
+        "page": "mouth",
+        "label": "Mouth Camera Mode",
+        "hint": "Use a USB camera, an MJPEG-over-HTTP stream, or the PC app.",
+        "options": ["usb", "url", "pc"],
+        "labels": ["USB", "Stream URL", "PC App"]
       },
       {
         "id": "/pipelines/eye/openness_source",

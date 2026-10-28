@@ -3,6 +3,8 @@
 #include "core/metrics.h"
 #include "core/threading.h"
 #include "model/pipeline.h"
+#include "model/postprocess/gaze_filter.h"
+#include "model/postprocess/manual_range.h"
 #include "model/postprocess/one_euro.h"
 
 #include <array>
@@ -30,6 +32,7 @@ std::optional<std::array<double, 3>> convert(double x, double y, double z, doubl
 // Convert the head-space gaze direction of one eye to the yaw and pitch of that eye.
 std::optional<std::array<double, 2>> from_direction(double x, double y, double z, double max_deg, bool flip_y,
                                                     const Offsets &off, Scaling scaling = Scaling::Angle);
+double width_for(double feo_width, double max_deg, Scaling scaling);
 
 // The optional One Euro smoothing of the four gaze values, with one preset for each level above 0 (off).
 class Smoother {
@@ -80,6 +83,7 @@ private:
     bool tick_independent(uint64_t now);
     bool tick_combined(uint64_t now);
     void publish(double lx, double ly, double rx, double ry, uint64_t now, bool centre = false);
+    bool set_filter_option(const std::string &key, const nlohmann::json &value);
     void centre(uint64_t now) { publish(0, 0, 0, 0, now, true); }
 
     int dominant_eye_ = -1;   // The "Track Dominant Eye Only" eye of the last independent sample, or -1.
@@ -99,6 +103,14 @@ private:
     gaze::Smoother smoother_;
     std::atomic<int> smoothing_{0};
     std::atomic<bool> smoothing_reset_{false};
+    std::mutex opt_mutex_;
+    bool frameeye_smoothing_ = true;
+    gaze::FilterParams filter_params_;
+    std::array<ManualRange, 4> ranges_{{{-1, 1}, {-1, 1}, {-1, 1}, {-1, 1}}};
+    gaze::Filter frameeye_filter_;
+    uint64_t last_send_ns_ = 0;
+    std::array<SignalId, 4> pre_ids_{};
+    std::array<SignalId, 2> lid_ids_{};
     bool stats_registered_ = false;
 };
 

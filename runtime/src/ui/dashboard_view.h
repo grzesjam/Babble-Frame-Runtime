@@ -3,12 +3,10 @@
 #include "platform/steamvr_client.h"
 #include "ui/canvas.h"
 #include "ui/font.h"
-#include "ui/fork_pages.h"
 #include "ui/image.h"
 
 #include <array>
 #include <cstddef>
-#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -82,14 +80,6 @@ struct OutputModule {
     std::string status;            // What the output does now, which replaces the hint while it is on.
     std::vector<ModuleOption> options;
     bool operator==(const OutputModule &) const = default;
-};
-
-// A streaming mode of a USB camera, from its descriptors.
-struct UsbMode {
-    std::string format;            // "mjpeg" or "yuyv".
-    uint16_t width = 0, height = 0;
-    std::vector<double> fps;       // The advertised rates, highest first.
-    bool too_large = false;        // True if the frame is larger than the 640x480 frame buffers.
 };
 
 // A USB camera that the mouth can use.
@@ -172,7 +162,6 @@ struct Status {
     bool mouth_source_selectable = true;   // False hides the Frunk/USB row because the USB camera is the only mouth.
     std::vector<UsbCamera> cameras{};
     std::string camera{}, active_camera{};
-    UsbStream usb_stream{};
     // The data for the Diagnostics page, where verbose_minutes_left is 0 if verbose logging is off.
     int verbose_minutes_left = 0;
     std::string last_diagnostics{}, log_file{}, stats_file{};
@@ -257,14 +246,6 @@ public:
     const std::string &options_camera() const { return options_camera_; }
     void set_options_camera(const std::string &id) { options_camera_ = id; }
 
-    // The Eyes, Squint, Mouth and Resolution pages draw live data, which the caller sets before each render.
-    bool live_page() const { return page_ >= Page::Eyes; }
-    void set_page_data(PageData d) { fork_.data = std::move(d); }
-    // A drag that started with a click on a range handle or the crop box follows the pointer until release.
-    bool dragging() const { return fork_.drag.kind != DragState::Kind::None; }
-    bool drag(Point p);   // Returns true if the drawing changed.
-    ClickResult release(Point p);
-
 private:
     struct Hit {
         enum Kind {
@@ -321,33 +302,6 @@ private:
     void render_icon(Canvas &c, Icon icon, float x, float y, Color color);
     float render_block(Canvas &c, float y, Icon icon, float row_h = 124);   // Returns the left edge of the text.
     bool hovered(const Rect &r) const;
-
-    // The pages that the fork adds, in ui/page_*.cpp, and their widgets, in ui/widgets.cpp.
-    void render_eyes(Canvas &c, const std::vector<Choice> &choices);
-    void render_squint(Canvas &c, const std::vector<Choice> &choices);
-    void render_mouth(Canvas &c, const Status &s);
-    void render_resolution(Canvas &c, const Status &s);   // The modes of the USB mouth camera.
-    void render_page_buttons(Canvas &c, float right);   // The Eyes, Squint and Mouth buttons on Settings.
-    void render_range(Canvas &c, Rect r, const std::string &pointer, const std::string &signal, bool signed_axis,
-                      bool dim = false);
-    void render_text_field(Canvas &c, Rect r, const std::string &action, const std::string &text,
-                           const std::string &placeholder);
-    void render_choice_row(Canvas &c, float y, float row_h, size_t index, const Choice &ch);
-    // Draws segments that set the string or number at pointer to one of the values.
-    float render_value_segments(Canvas &c, float right, float y, const std::string &pointer,
-                                const std::vector<std::string> &labels, const std::vector<nlohmann::json> &values,
-                                float seg_w = 160);   // Returns the left edge.
-    void render_tabs(Canvas &c, float right, const std::vector<std::string> &labels, int selected,
-                     const std::string &action);
-    Rect render_small_button(Canvas &c, float right, float y, const std::string &text, const std::string &action,
-                             bool primary = false);
-    // Returns the current value at pointer: a value that this view just sent, or else the config value.
-    nlohmann::json setting(const std::string &pointer, const nlohmann::json &fallback) const;
-    // Returns a recent value of the signal, or with any_age the last value, which suits status signals.
-    std::optional<float> signal(const std::string &name, bool any_age = false) const;
-    void send(ClickResult &out, const std::string &pointer, nlohmann::json value);
-    void click_fork(const Hit &h, ClickResult &out, Point p);
-
     // Returns the text with an ellipsis so that it fits in max_w.
     std::string fit(const Font &f, const std::string &text, float px, float max_w) const;
 
@@ -360,7 +314,6 @@ private:
     std::array<std::optional<Image>, size_t(Icon::Count)> icons_{};
     std::vector<Hit> hits_;
     std::optional<Point> pointer_;
-    ForkPages fork_;
 };
 
 }

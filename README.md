@@ -16,27 +16,27 @@ This is a fork of [Project-Babble/Babble-Frame-Runtime](https://github.com/Proje
 Babble's models and output, and adds:
 
 - **Squint** from eyecam's live engine (sasaken1102r/frameeyeosc, MIT, in `third_party/eyecam`), run on the runtime's
-  own eye frames, with eyecam's guided squint calibration on the Babble tab. An existing `~/.config/eyecam/calib.json`
-  is imported on first start.
+  own eye frames. An existing `~/.config/eyecam/calib.json` is imported on first start; squint can be enabled on the
+  dashboard's Eye page. To start guided calibration, set a new positive value at `/sinks/squint/calibrate` in
+  `~/.config/babble-frame-runtime/settings.json` and restart the runtime.
 - **Gaze smoothing** from frameeyeosc (One Euro filter, deadzone, gaze held while the eyes are shut). It can be turned
-  off for Valve's raw gaze.
+  on or off and adjusted on the dashboard's Eye page.
 - **Blink hold**, off by default: keeps a short blink closed long enough for other players to see it.
 - **Manual calibration** in the Baballonia style (a minimum and a maximum per value) for eyelids, widen, squint, pupils,
-  gaze and the 45 mouth shapes. The eyes keep the runtime's automatic calibration underneath; the mouth uses the manual
-  ranges by default.
-- **Any generic usb mouth camera or MJPEG-over-HTTP stream**: Add supports for standard UVC camera (bulk or isochronous)
-  or MJPEG-over-HTTP from any streamer, at the dedicated Mouth tab. Include options to set resolution/fps, crops
-  or vertical/horizontal flip. (Tested against GC0308 cam only, Vive FT, Serial ESP32 boards and Desktop cams (like
-  Logitech) may not be supported yet. Use http stream option instead.)
-- **Mouth from Baballonia on the PC:** set Camera to PC App on the Mouth page. The runtime then opens no mouth camera
-  and runs no mouth model, but with Mouth Tracking on it still tells the VRCFaceTracking module to claim face tracking,
-  so the module takes the mouth from Baballonia and the eyes from the headset.
+  gaze and the 45 mouth shapes. These ranges are stored in the runtime settings; the eyes keep automatic calibration
+  underneath, and the mouth uses manual ranges by default.
+- **USB or MJPEG-over-HTTP mouth camera:** choose the camera mode on the dashboard's Mouth page. On dev builds, first
+  select USB as the Mouth Source in SteamVR Settings. For a stream, set `/sources/face/url` in
+  `~/.config/babble-frame-runtime/settings.json` to an MJPEG-over-HTTP URL. UVC supports bulk or isochronous cameras
+  and MJPEG or YUYV.
+- **Mouth from Baballonia on the PC:** choose PC App on the Mouth page. The runtime opens no mouth camera or model,
+  while the PC link continues to claim face tracking.
 
 Updates come from this fork's releases. Its versions keep Babble's format, so the build and the updater accept them,
 with the release number in its own range: the hundreds are the Babble release it is based on, the last two digits the
 fork's build. V1.0 Release 101 is the first fork build on Babble's V1.0 Release, and V1.0 Release 201 would be the first
 on a Babble V1.0 Release 2. Official Babble releases never reach these numbers, and a fork release always counts as
-newer than the Babble release it is based on.
+newer than the Babble release it is based on. This rebase starts the fork's V1.2 line at `V1.2 Release 101`.
 
 ## Features
 

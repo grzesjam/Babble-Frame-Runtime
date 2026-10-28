@@ -162,7 +162,7 @@ bool SteamVrGaze::init() {
     }
     lid_ids_ = {deps_.state.add_signal("_LeftEyeLidPre"), deps_.state.add_signal("_RightEyeLidPre")};
     // The strength sets the filter first, so one_euro or deadzone in a user config can still fine-tune it.
-    for (const char *key : {"smoothing", "smoothing_strength", "one_euro", "deadzone", "hold_closed_below", "ranges"})
+    for (const char *key : {"frameeye_smoothing", "smoothing_strength", "one_euro", "deadzone", "hold_closed_below", "ranges"})
         if (cfg_.contains(key) && !set_filter_option(key, cfg_[key]))
             LOG.warn("pipeline %s: ignoring %s = %s", name_.c_str(), key, cfg_[key].dump().c_str());
     const std::string p = "pipe." + name_ + ".";
@@ -178,8 +178,8 @@ bool SteamVrGaze::init() {
 
 bool SteamVrGaze::set_filter_option(const std::string &key, const nlohmann::json &value) {
     std::lock_guard<std::mutex> lock(opt_mutex_);
-    if (key == "smoothing" && value.is_boolean()) {
-        smoothing_ = value.get<bool>();
+    if (key == "frameeye_smoothing" && value.is_boolean()) {
+        frameeye_smoothing_ = value.get<bool>();
         return true;
     }
     if (key == "smoothing_strength" && value.is_number()) {
@@ -192,7 +192,7 @@ bool SteamVrGaze::set_filter_option(const std::string &key, const nlohmann::json
         const int level = int(v);
         if (v != level || level < 0 || level > 3)
             return false;
-        smoothing_ = level > 0;
+        frameeye_smoothing_ = level > 0;
         if (level > 0) {
             const auto &l = kLevels[level - 1];
             filter_params_.euro = *one_euro_params(nlohmann::json{{"min_cutoff", l.min_cutoff}, {"beta", l.beta}},
@@ -275,14 +275,42 @@ void SteamVrGaze::publish(double lx, double ly, double rx, double ry, uint64_t n
         smoothing_reset_ = true;   // The gaze comes back from the centre without a slow glide.
         std::copy(raw, raw + 4, out);
     } else {
-        if (smoothing_reset_.exchange(false))
+        if (smoothing_reset_.exchange(false)) {
             smoother_.reset();
+            frameeye_filter_.reset();
+            last_send_ns_ = 0;
+        }
         smoother_.apply(raw, out, smoothing_.load(), now);
     }
-    std::pair<SignalId, Signal> u[4] = {{ids_[0], {out[0], 1.0f, now}},
-                                        {ids_[1], {out[1], 1.0f, now}},
-                                        {ids_[2], {out[2], 1.0f, now}},
-                                        {ids_[3], {out[3], 1.0f, now}}};
+    bool frameeye_smoothing;
+    gaze::FilterParams fp;
+    std::array<ManualRange, 4> ranges;
+    {
+        std::lock_guard<std::mutex> lock(opt_mutex_);
+        frameeye_smoothing = frameeye_smoothing_;
+        fp = filter_params_;
+        ranges = ranges_;
+    }
+    std::array<double, 4> values = {out[0], out[1], out[2], out[3]};
+    if (!centre && frameeye_smoothing) {
+        fp.deadzone = gaze::width_for(fp.deadzone, max_deg_, scaling_);
+        frameeye_filter_.set_params(fp);
+        Signal lids[2];
+        deps_.state.read(lid_ids_, lids);
+        std::optional<std::array<double, 2>> openness;
+        if (lids[0].confidence > 0 && lids[1].confidence > 0 &&
+            now - std::min(now, std::min(lids[0].t_ns, lids[1].t_ns)) < stale_ns_)
+            openness = std::array<double, 2>{lids[0].value, lids[1].value};
+        values = frameeye_filter_.apply(values, openness, last_send_ns_ ? double(now - last_send_ns_) / 1e9 : 0.0);
+    } else {
+        frameeye_filter_.reset();
+    }
+    last_send_ns_ = centre ? 0 : now;
+    std::pair<SignalId, Signal> u[8];
+    for (int i = 0; i < 4; i++) {
+        u[i] = {pre_ids_[i], {float(values[i]), 1.0f, now}};
+        u[4 + i] = {ids_[i], {ranges[i].apply_signed(float(values[i])), 1.0f, now}};
+    }
     deps_.state.update(u);
 }
 

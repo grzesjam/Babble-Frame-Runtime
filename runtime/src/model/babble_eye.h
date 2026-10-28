@@ -68,8 +68,14 @@ private:
     double pupil_gain_ = 2.0;
 
     std::array<SignalId, 3> left_ids_{}, right_ids_{};   // The order is Lid, Widen, Dilation.
+    std::array<SignalId, 3> left_pre_ids_{}, right_pre_ids_{};   // Values before the manual ranges.
     SignalId left_raw_id_ = 0, right_raw_id_ = 0;        // These debug signals are not sent.
     std::array<SignalId, 6> cal_ids_{};   // These debug signals show the neutral, wide and closed values of each eye.
+    std::array<eye::BlinkHold, 2> blink_hold_;
+    std::atomic<double> blink_hold_ms_{0};
+    std::mutex range_mutex_;
+    std::array<std::array<ManualRange, 3>, 2> ranges_{};   // [Left, Right][Lid, Widen, Dilation].
+    bool set_eye_option(const std::string &key, const nlohmann::json &value);
 };
 
 }

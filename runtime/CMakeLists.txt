@@ -97,10 +97,6 @@ add_library(babble_core STATIC
     src/ui/dashboard_view.cpp
     src/ui/dashboard.cpp
     src/ui/vk_uploader.cpp
-    src/ui/widgets.cpp
-    src/ui/page_eyes.cpp
-    src/ui/page_squint.cpp
-    src/ui/page_mouth.cpp
 )
 if(BABBLE_FRUNK_MOUTH)
     # Add the code for the stereo mouth cameras of the Frame, which only dev builds use.
@@ -223,7 +219,6 @@ if(BABBLE_TESTS)
         tests/test_sha256.cpp
         tests/test_capture_apps.cpp
         tests/test_runtime_updater.cpp
-        tests/test_crop_drag.cpp
     )
     if(BABBLE_FRUNK_MOUTH)
         target_sources(babble_tests PRIVATE tests/test_stereo_pairer.cpp)

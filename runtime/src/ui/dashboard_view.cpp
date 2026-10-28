@@ -250,17 +250,11 @@ void DashboardView::render_home(Canvas &c, const Status &s) {
         c.fill_rect(r, kCard, 6);
         render_icon(c, i == 0 ? Icon::Mouth : Icon::Eye, r.x + 20, r.y + 30, kMuted);
         medium_.draw(c, r.x + 76, r.y + 47, names[i], 28, kText);
-        // The camera mode of the USB mouth; in the PC app mode, an app on the PC sends the mouth and no camera runs here.
-        const nlohmann::json face_mode =
-            i == 0 && s.mouth_source == "usb" ? setting("/sources/face/mode", "usb") : nlohmann::json();
-        const bool from_pc = face_mode == "pc";
         std::string detail = health_word(f.health);
         if (!f.available)
             detail = "Not configured";
         else if (!f.tracking)
             detail = "Off";
-        else if (from_pc)
-            detail = "Sent by the PC app";
         else if (f.health == Health::Working)
             detail = "Tracking" + (f.hz > 0 ? " \u00b7 " + format_hz(f.hz) : "");
         else if (f.health == Health::Paused)
@@ -272,16 +266,12 @@ void DashboardView::render_home(Canvas &c, const Status &s) {
             const Rect sw{r.x + r.w - 32 - 92, r.y + (ch - 52) / 2, 92, 52};
             const Rect hit{sw.x - 24, r.y, r.x + r.w - (sw.x - 24), r.h};
             // When the switch is on, its colour shows the health of the feed.
-            render_switch(c, sw, f.tracking, hovered(hit), health_color(from_pc ? Health::Working : f.health));
+            render_switch(c, sw, f.tracking, hovered(hit), health_color(f.health));
             hits_.push_back({Hit::Toggle, hit, size_t(i), f.tracking ? 0.0 : 1.0});
             text_right = hit.x - 12;
         }
         regular_.draw(c, r.x + 76, r.y + 79, fit(regular_, detail, 22, text_right - r.x - 76), 22, kMuted);
-        const char *source = i == 1                    ? "Headset eye tracking"
-                             : s.mouth_source != "usb" ? "Headset mouth cameras"
-                             : from_pc                 ? "PC app (Baballonia)"
-                             : face_mode == "url"      ? "Mouth camera stream"
-                                                       : "USB camera";
+        const char *source = i == 1 ? "Headset eye tracking" : s.mouth_source == "usb" ? "USB camera" : "Headset mouth cameras";
         regular_.draw(c, r.x + 76, r.y + 111, source, 19, kMuted);
     }
 }
@@ -1298,7 +1288,6 @@ DashboardView::ClickResult DashboardView::click(Point p) {
         case Hit::OpenCameras:
             restart_armed_until_ns_ = 0;
             page_ = Page::Cameras;
-            fork_.cameras_from_mouth = false;
             out.refresh_cameras = true;   // Show the cameras that are connected now.
             out.redraw = true;
             break;
@@ -1334,9 +1323,6 @@ DashboardView::ClickResult DashboardView::click(Point p) {
             break;
         case Hit::Visualizer:
             out.visualizer = true;
-            break;
-        case Hit::Fork:
-            click_fork(h, out, p);
             break;
         case Hit::Restart: {
             const uint64_t now = mono_ns();
