@@ -12,7 +12,7 @@ namespace babble::uvc {
 
 namespace {
 
-constexpr uint8_t kInterface = 0x04, kEndpoint = 0x05, kClassInterface = 0x24, kSsEndpointCompanion = 0x30;
+constexpr uint8_t kInterface = 0x04, kEndpoint = 0x05, kClassInterface = 0x24;
 constexpr uint8_t kVideoClass = 0x0e, kControlSub = 0x01, kStreamingSub = 0x02;
 constexpr uint8_t kVcHeader = 0x01;
 constexpr uint8_t kVsFormatUncompressed = 0x04, kVsFrameUncompressed = 0x05, kVsFormatMjpeg = 0x06,
@@ -88,8 +88,6 @@ std::optional<Info> parse_config(const uint8_t *data, size_t size, std::string *
         if (len < 2 || i + len > size)
             break;
         const uint8_t *d = data + i;
-        const bool was_iso = last_was_iso;
-        last_was_iso = false;
         if (type == kInterface && len >= 9) {
             cur_iface = d[2];
             cur_alt = d[3];
@@ -232,102 +230,6 @@ std::vector<int> frame_rates(const FrameSize &f) {
     return fps;
 }
 
-std::vector<Mode> list_modes(const Info &info) {
-    std::vector<Mode> out;
-    for (const bool yuyv : {false, true}) {
-        std::vector<Mode> group;
-        for (const auto &f : yuyv ? info.yuyv_frames : info.mjpeg_frames) {
-            // Some cameras list one size more than one time, so merge their rates.
-            auto it = std::find_if(group.begin(), group.end(),
-                                   [&](const Mode &m) { return m.width == f.width && m.height == f.height; });
-            if (it == group.end()) {
-                group.push_back({yuyv, f.width, f.height, {}, !fits(f)});
-                it = group.end() - 1;
-            }
-            for (double r : frame_rates(f))
-                if (std::none_of(it->fps.begin(), it->fps.end(), [&](double x) { return std::abs(x - r) < 0.01; }))
-                    it->fps.push_back(r);
-            std::sort(it->fps.begin(), it->fps.end(), std::greater<>());
-        }
-        std::stable_sort(group.begin(), group.end(), [](const Mode &a, const Mode &b) {
-            return uint32_t(a.width) * a.height > uint32_t(b.width) * b.height;
-        });
-        out.insert(out.end(), group.begin(), group.end());
-    }
-    return out;
-}
-
-std::optional<Choice> pick_mode(const Info &info, const std::string &format, uint16_t width, uint16_t height,
-                                double fps, std::string *error) {
-    auto exact = [&](bool yuyv) -> const FrameSize * {
-        for (const auto &f : yuyv ? info.yuyv_frames : info.mjpeg_frames)
-            if (f.width == width && f.height == height && fits(f))
-                return &f;
-        return nullptr;
-    };
-    auto largest = [&](bool yuyv) -> const FrameSize * {
-        const FrameSize *best = nullptr;
-        for (const auto &f : yuyv ? info.yuyv_frames : info.mjpeg_frames)
-            if (fits(f) && (!best || uint32_t(f.width) * f.height > uint32_t(best->width) * best->height))
-                best = &f;
-        return best;
-    };
-    bool yuyv = false;
-    const FrameSize *f = nullptr;
-    if (format == "mjpeg" || format == "yuyv") {
-        yuyv = format == "yuyv";
-        f = exact(yuyv);
-    }
-    // The auto rule: the exact size in MJPEG and then YUYV, or else the largest MJPEG and then YUYV size that fits.
-    for (const bool y : {false, true})
-        if (!f && (f = exact(y)))
-            yuyv = y;
-    for (const bool y : {false, true})
-        if (!f && (f = largest(y)))
-            yuyv = y;
-    if (!f) {
-        if (error)
-            *error = "no mode at or under 640×480";
-        return std::nullopt;
-    }
-    // Some cameras list one size more than one time with other rates, so take the one that offers the closest rate.
-    if (fps > 0) {
-        double best_diff = 1e18;
-        for (const auto &g : yuyv ? info.yuyv_frames : info.mjpeg_frames) {
-            if (g.width != f->width || g.height != f->height || !fits(g))
-                continue;
-            for (double r : frame_rates(g))
-                if (const double diff = std::abs(r - fps); diff < best_diff) {
-                    best_diff = diff;
-                    f = &g;
-                }
-        }
-    }
-    Choice c;
-    c.yuyv = yuyv;
-    c.format_index = yuyv ? info.yuyv_format : info.mjpeg_format;
-    c.frame = *f;
-    c.interval = pick_interval(*f, fps);
-    return c;
-}
-
-const AltSetting *pick_alt(const Info &info, uint32_t max_payload) {
-    const AltSetting *best = nullptr;
-    for (const auto &a : info.alts)
-        if (!a.bulk && a.alt != 0 && a.packet_bytes >= max_payload && (!best || a.packet_bytes < best->packet_bytes))
-            best = &a;
-    return best;
-}
-
-bool yuyv_to_gray(const uint8_t *data, size_t size, uint32_t width, uint32_t height, uint8_t *gray) {
-    const size_t pixels = size_t(width) * height;
-    if (!pixels || size != pixels * 2)
-        return false;
-    for (size_t i = 0; i < pixels; i++)
-        gray[i] = data[2 * i];
-    return true;
-}
-
 size_t probe_length(uint16_t bcd_uvc) {
     if (bcd_uvc >= 0x0150)
         return 48;
@@ -418,14 +320,7 @@ bool FrameAssembler::push(const uint8_t *payload, size_t size) {
 }
 
 bool looks_like_jpeg(const uint8_t *data, size_t size) {
-    if (size < 4 || data[0] != 0xff || data[1] != 0xd8)
-        return false;
-    // Some cameras (the GC0308) pad the frame with bytes after EOI, so look for EOI in the last few KB.
-    const size_t stop = size > 4096 ? size - 4096 : 2;
-    for (size_t i = size - 1; i > stop; i--)
-        if (data[i] == 0xd9 && data[i - 1] == 0xff)
-            return true;
-    return false;
+    return size >= 4 && data[0] == 0xff && data[1] == 0xd8 && data[size - 2] == 0xff && data[size - 1] == 0xd9;
 }
 
 bool to_gray(FormatKind kind, const uint8_t *data, size_t size, uint16_t width, uint16_t height, uint8_t *out,

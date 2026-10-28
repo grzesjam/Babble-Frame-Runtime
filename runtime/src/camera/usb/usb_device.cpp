@@ -146,12 +146,10 @@ std::vector<uint8_t> config_descriptor(const Found &f) {
 bool Device::claim(uint8_t iface, std::string *error) {
     unsigned int i = iface;
     if (ioctl(fd_, USBDEVFS_CLAIMINTERFACE, &i) != 0) {
-        claim_errno_ = errno;
         if (error)
-            *error = "claim interface " + std::to_string(iface) + ": " + strerror(claim_errno_);
+            *error = "claim interface " + std::to_string(iface) + ": " + strerror(errno);
         return false;
     }
-    claim_errno_ = 0;
     claimed_.push_back(iface);
     return true;
 }

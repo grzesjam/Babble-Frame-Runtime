@@ -26,7 +26,6 @@ Camera::~Camera() { close(); }
 
 bool Camera::open(const usb::Found &found, const Mode &mode, std::string *error) {
     close();
-    busy_ = false;
     if (!dev_.open(found, error))
         return false;
     const auto config = dev_.config_descriptor();
@@ -66,7 +65,6 @@ bool Camera::open(const usb::Found &found, const Mode &mode, std::string *error)
                   info_.alts.size(), formats.c_str(), format_label(format_), frame_.width, frame_.height);
     }
     if (!dev_.claim(info_.control_iface, error) || !dev_.claim(info_.stream_iface, error)) {
-        busy_ = dev_.claim_errno() == EBUSY;
         close();
         return false;
     }
@@ -168,20 +166,6 @@ bool Camera::open(const usb::Found &found, const Mode &mode, std::string *error)
 }
 
 bool Camera::read(int timeout_ms, const std::function<void(const uint8_t *, size_t)> &on_frame, std::string *error) {
-    if (iso_reader_) {
-        // Each isochronous packet is one payload, and a lost packet makes its frame bad.
-        return iso_reader_->wait(
-            timeout_ms,
-            [&](const uint8_t *data, size_t size, bool ok) {
-                if (!ok) {
-                    assembler_.mark_bad();
-                } else if (assembler_.push(data, size)) {
-                    auto &frame = assembler_.frame();
-                    on_frame(frame.data(), frame.size());
-                }
-            },
-            error);
-    }
     if (!reader_)
         return false;
     return reader_->wait(
@@ -208,10 +192,6 @@ void Camera::close() {
     if (reader_) {
         reader_->stop();
         reader_.reset();
-    }
-    if (iso_reader_) {
-        iso_reader_->stop();
-        iso_reader_.reset();
     }
     if (dev_.is_open()) {
         if (iso_alt_) {

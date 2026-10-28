@@ -204,21 +204,6 @@ bool BabbleUsbSource::set_option(const std::string &key, const nlohmann::json &v
         return set_camera_option(key.substr(8), value);
     if (key != "camera" || !value.is_string())
         return false;
-    if (key != "camera") {
-        // Several of these keys come in one batch, so the stream restarts one time on the next tick.
-        const auto old = std::make_tuple(format_, width_, height_, fps_);
-        if (key == "format")
-            format_ = value.get<std::string>();
-        else if (key == "width")
-            width_ = uint16_t(std::lround(value.get<double>()));
-        else if (key == "height")
-            height_ = uint16_t(std::lround(value.get<double>()));
-        else
-            fps_ = value.get<double>();
-        if (std::make_tuple(format_, width_, height_, fps_) != old)
-            mode_changed_ = true;
-        return true;
-    }
     if (value.get<std::string>() == camera_)
         return true;
     camera_ = value.get<std::string>();
@@ -359,6 +344,7 @@ void BabbleUsbSource::run(usb::Found dev, uvc::Mode mode) {
         failed_ = true;
         return;
     }
+    opened_ = true;
     const auto &p = cam.negotiated();
     const std::string transfer = cam.iso() ? "isochronous alt " + std::to_string(cam.iso_alt()) : "bulk";
     LOG.info("%s: streaming %s (%s, %s): %s %ux%u at %.0f fps, %s", name_.c_str(), usb::device_label(dev).c_str(),
@@ -372,14 +358,11 @@ void BabbleUsbSource::run(usb::Found dev, uvc::Mode mode) {
     uint64_t last_dropped = 0;
     // Log a stream report at debug level each 10 s.
     uint64_t report_at = mono_ns() + 10'000'000'000ull, frames_in = 0, frames_kept = 0, bytes_in = 0;
-    // Measure the camera rate over about 2 s.
-    uint64_t rate_from = mono_ns(), rate_frames = 0;
     while (!stop_) {
         const bool ok = cam.read(200, [&](const uint8_t *data, size_t size) {
             const uint64_t now = mono_ns();
             frames_.tick();
             frames_in++;
-            rate_frames++;
             bytes_in += size;
             // The frame tap gets all frames, but tracking gets only the frames that the limiter accepts.
             IFrameTap *tap = tap_.load(std::memory_order_relaxed);
@@ -436,11 +419,6 @@ void BabbleUsbSource::run(usb::Found dev, uvc::Mode mode) {
             frames_kept++;
             out_.put(std::move(sf));
         }, &err);
-        if (const uint64_t t = mono_ns(); t - rate_from >= 2'000'000'000ull) {
-            fps_real_ = double(rate_frames) * 1e9 / double(t - rate_from);
-            rate_from = t;
-            rate_frames = 0;
-        }
         if (const uint64_t t = mono_ns(); t >= report_at) {
             LOG.debug("%s: %llu frames in 10 s (%.1f KB avg), %llu passed on, %llu dropped in reassembly", name_.c_str(),
                       (unsigned long long)frames_in, frames_in ? double(bytes_in) / 1024.0 / double(frames_in) : 0.0,
@@ -465,18 +443,6 @@ void BabbleUsbSource::tick(uint64_t now) {
     const bool absent = pause_when_absent_ && steamvr_ && steamvr_->worn() == Worn::No;
     const bool hold = !tracking_ || absent;
     const char *why = !tracking_ ? "tracking turned off" : "headset not worn";
-    if (mode_changed_) {
-        mode_changed_ = false;
-        LOG.info("%s: mode set to %s %ux%u at %.0f fps", name_.c_str(), format_.c_str(), width_, height_, fps_);
-        if (state_ == State::Streaming)
-            stop("changing mode");
-        if (state_ == State::Streaming || state_ == State::Backoff) {
-            state_ = State::Waiting;
-            retry_at_ns_ = backoff_ns_ = 0;
-            last_error_.clear();
-            last_busy_ = false;
-        }
-    }
     switch (state_) {
     case State::Disabled: return;
     case State::Paused:
@@ -495,11 +461,9 @@ void BabbleUsbSource::tick(uint64_t now) {
         if (opened_ && backoff_ns_) {   // The camera works again, so the next failure starts at the minimum backoff.
             backoff_ns_ = 0;
             last_error_.clear();
-            last_busy_ = false;
         }
         if (failed_) {
             last_error_ = thread_error_;
-            last_busy_ = thread_busy_;
             stop(last_error_.c_str());
             restarts_.add();
             // Wait quietly for an unplugged camera, and wait and try again after other errors.

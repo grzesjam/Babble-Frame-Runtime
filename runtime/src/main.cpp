@@ -645,10 +645,15 @@ int main(int argc, char **argv) {
 #endif
 
     // The runtime reads the USB camera list at start and when the overlay asks for a refresh.
-    BabbleUsbSource *usb_source = nullptr;
-    for (auto &s : sources)
-        if (!usb_source)
-            usb_source = dynamic_cast<BabbleUsbSource *>(s.src.get());
+    auto usb_source = [&]() -> BabbleUsbSource * {
+        for (auto &s : sources) {
+            if (auto *usb = dynamic_cast<BabbleUsbSource *>(s.src.get()))
+                return usb;
+            if (auto *face = dynamic_cast<FaceCameraSource *>(s.src.get()); face && face->usb())
+                return face->usb();
+        }
+        return nullptr;
+    };
     // The cameras from the last refresh, with their formats from the descriptor in sysfs.
     struct FoundCamera {
         usb::Found dev;
@@ -660,9 +665,10 @@ int main(int argc, char **argv) {
     auto update_camera_settings = [&] {
         for (size_t i = 0; i < usb_cameras.size() && i < found_cameras.size(); i++) {
             const FoundCamera &fc = found_cameras[i];
-            if (!usb_source || !fc.info)
+            auto *usb = usb_source();
+            if (!usb || !fc.info)
                 continue;
-            const auto s = usb_source->settings_for(fc.dev);
+            const auto s = usb->settings_for(fc.dev);
             ui::UsbCamera::Settings &out = usb_cameras[i].settings;
             out.rotate = s.rotate;
             out.flip_h = s.flip_h;
@@ -721,9 +727,10 @@ int main(int argc, char **argv) {
             o.width_m = dcfg.value("width_m", o.width_m);
             o.state = &state;
             o.mouth_tracking_id = mouth_tracking_id;
-            if (usb_source)
+            if (usb_source())
                 o.preview = [usb_source, cache = std::make_shared<BabbleUsbSource::Preview>()](ui::CameraPreview &out) {
-                    if (!usb_source->take_preview(*cache))
+                    auto *usb = usb_source();
+                    if (!usb || !usb->take_preview(*cache))
                         return false;
                     out.camera = cache->camera;
                     out.width = cache->width;
@@ -1383,22 +1390,6 @@ int main(int argc, char **argv) {
             if (auto *usb = usb_source()) {
                 st.camera = usb->camera();
                 st.active_camera = usb->active_camera();
-                using U = ui::UsbStream::State;
-                using B = BabbleUsbSource::StreamStatus::State;
-                const auto s = usb->stream_status();
-                st.usb_stream.state = s.state == B::Opening     ? U::Opening
-                                      : s.state == B::Streaming ? U::Streaming
-                                      : s.state == B::Busy      ? U::Busy
-                                      : s.state == B::Error     ? U::Error
-                                                                : U::Waiting;
-                st.usb_stream.camera = usb->active_camera();
-                if (s.state == B::Streaming)
-                    st.usb_stream.format = s.yuyv ? "yuyv" : "mjpeg";
-                st.usb_stream.width = s.width;
-                st.usb_stream.height = s.height;
-                st.usb_stream.fps_asked = s.fps_asked;
-                st.usb_stream.fps_real = s.fps_real;
-                st.usb_stream.error = s.error;
             }
             for (auto &s : sources) {
                 // Show the eye rate that the share of the camera rate gives.

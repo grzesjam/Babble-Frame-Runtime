@@ -3,7 +3,6 @@
 // A UVC camera from user space, over bulk or isochronous transfers. One thread must call open() and then read() in a
 // loop.
 
-#include "camera/usb/iso_reader.h"
 #include "camera/usb/usb_device.h"
 #include "camera/usb/uvc.h"
 
