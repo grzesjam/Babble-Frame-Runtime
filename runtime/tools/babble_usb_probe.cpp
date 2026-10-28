@@ -61,7 +61,7 @@ int main(int argc, char **argv) {
         std::filesystem::create_directories(save_dir);
 
     std::vector<uint8_t> gray(1920 * 1080);
-    int frames = 0, bad = 0, saved = 0;
+    int frames = 0, bad = 0, saved = 0, saved_bad = 0;
     size_t bytes = 0;
     // Saves the raw bytes of a bad frame, so that its start and end can be read.
     auto save_bad = [&](const uint8_t *d, size_t n) {
