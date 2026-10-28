@@ -335,7 +335,7 @@ bool SteamVrGaze::tick_independent(uint64_t now) {
     auto gr = gaze::from_direction(r[0], r[1], r[2], max_deg_, flip_y_, off_, scaling_);
     if (!gl || !gr)
         return false;
-    send((*gl)[0], (*gl)[1], (*gr)[0], (*gr)[1], now);
+    publish((*gl)[0], (*gl)[1], (*gr)[0], (*gr)[1], now);
     samples_.tick();
     return true;
 }
@@ -384,7 +384,7 @@ bool SteamVrGaze::tick_combined(uint64_t now) {
     if (!g)
         return false;
     const auto &[lx, rx, y] = *g;
-    send(lx, y, rx, y, now);
+    publish(lx, y, rx, y, now);
     samples_.tick();
     return true;
 }

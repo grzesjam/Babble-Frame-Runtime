@@ -308,6 +308,7 @@ void BabbleEye::process(const StereoFrame &sf) {
         auto r = trackers_[e].update(o[e], pupil[e], tuned_.k(), dt);
         dil[e] = eye::dilation(r, pupil_gain_);
         shown_mm[e] = r.px;
+        lid_out[e] = blink_hold_[e].apply(lid_out[e], sf.capture_ns, blink_hold_ms_);
     }
     if (combine_widen_.load(std::memory_order_relaxed))
         widen[0] = widen[1] = (widen[0] + widen[1]) / 2;
@@ -327,9 +328,14 @@ void BabbleEye::process(const StereoFrame &sf) {
         ranges = ranges_;
     }
     std::vector<std::pair<SignalId, Signal>> updates;
-    auto emit = [&](const std::array<SignalId, 3> &ids, int e) {
-        updates.emplace_back(ids[0], Signal{float(lid_out[e]), 1.0f, sf.capture_ns});
-        updates.emplace_back(ids[1], Signal{float(widen[e]), 1.0f, sf.capture_ns});
+    auto emit = [&](const std::array<SignalId, 3> &ids, const std::array<SignalId, 3> &pre_ids,
+                    const std::array<ManualRange, 3> &range, int e) {
+        auto add = [&](int k, double v) {
+            updates.emplace_back(pre_ids[k], Signal{float(v), 1.0f, sf.capture_ns});
+            updates.emplace_back(ids[k], Signal{range[k].apply(float(v)), 1.0f, sf.capture_ns});
+        };
+        add(0, std::clamp(lid_out[e], 0.0, 1.0));
+        add(1, widen[e]);
         if (dil[e])   // Send no dilation until the pupil baseline exists, as the reference does.
             add(2, std::clamp(*dil[e], 0.0, 1.0));
     };
